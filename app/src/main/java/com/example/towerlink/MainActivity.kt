@@ -1,118 +1,36 @@
 package com.example.towerlink
 
-import android.Manifest
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.viewModels
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.towerlink.ui.theme.TowerLinkTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.PermissionState
-import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import com.google.accompanist.permissions.shouldShowRationale
+import com.google.accompanist.permissions.isGranted
+import com.example.towerlink.ui.theme.TowerLinkTheme
 
-@OptIn(ExperimentalPermissionsApi::class)
 class MainActivity : ComponentActivity() {
-
-    private val viewModel: CellTowerViewModel by viewModels()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             TowerLinkTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    CellTowerProbeScreen(viewModel = viewModel)
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
-@Composable
-fun CellTowerProbeScreen(viewModel: CellTowerViewModel) {
-    val locationPermissionState = rememberPermissionState(
-        Manifest.permission.ACCESS_FINE_LOCATION
-    )
-    val state by viewModel.state.collectAsStateWithLifecycle()
-
-    LaunchedEffect(locationPermissionState.status) {
-        if (locationPermissionState.status.isGranted) {
-            viewModel.fetchCellTowerInfo()
-        }
-    }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Cell Tower Probe") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.primary
-                )
-            )
-        }
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (locationPermissionState.status.isGranted) {
-                Button(
-                    onClick = { viewModel.fetchCellTowerInfo() },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Refresh Cell Info")
-                }
-            } else {
-                PermissionRequestUI(locationPermissionState)
-            }
-
-            state.error?.let {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Error: $it",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(state.simInfos) { simInfo ->
-                    SimInfoCard(simInfo = simInfo)
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    CellTowerProbeScreen(
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
             }
         }
@@ -121,85 +39,228 @@ fun CellTowerProbeScreen(viewModel: CellTowerViewModel) {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun PermissionRequestUI(locationPermissionState: PermissionState) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        val textToShow = if (locationPermissionState.status.shouldShowRationale) {
-            "Location permission is needed to read cell tower info."
-        } else {
-            "This app needs location permission to function."
-        }
-        Text(textToShow)
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(onClick = { locationPermissionState.launchPermissionRequest() }) {
-            Text("Grant Permission")
-        }
-    }
-}
+fun CellTowerProbeScreen(
+    modifier: Modifier = Modifier,
+    viewModel: CellTowerViewModel = viewModel()
+) {
+    val locationPermissionState = rememberPermissionState(
+        android.Manifest.permission.ACCESS_FINE_LOCATION
+    )
 
-@Composable
-fun SimInfoCard(simInfo: SimInfo) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            Text(
-                text = "Network: ${simInfo.networkIdentifier}",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-            Divider()
-            simInfo.towers.forEach { tower ->
-                TowerDataDisplay(tower = tower)
-            }
-        }
-    }
-}
-
-@Composable
-fun TowerDataDisplay(tower: CellTower) {
-    val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val backgroundColor = if (tower.isRegistered) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface
+    val uiState by viewModel.uiState.collectAsState()
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            // NEW: Add clickable modifier for tap-to-copy
-            .clickable {
-                clipboardManager.setText(AnnotatedString(tower.copyableFormat))
-                Toast
-                    .makeText(context, "Copied: ${tower.copyableFormat}", Toast.LENGTH_SHORT)
-                    .show()
-            }
-            .background(backgroundColor)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Row(
+        // Header
+        Text(
+            text = "📡 Cell Tower Probe",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+
+        Text(
+            text = "Get cell tower data without READ_PHONE_STATE",
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Permission Status
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            colors = CardDefaults.cardColors(
+                containerColor = if (locationPermissionState.status.isGranted)
+                    MaterialTheme.colorScheme.primaryContainer
+                else
+                    MaterialTheme.colorScheme.errorContainer
+            )
         ) {
-            Column {
-                if (tower.isRegistered) {
-                    Text(
-                        "Connected Tower",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
-                    )
-                }
-                Text(
-                    text = tower.copyableFormat,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
             Text(
-                text = tower.type,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                text = if (locationPermissionState.status.isGranted)
+                    "✅ Location Permission Granted"
+                else
+                    "❌ Location Permission Required",
+                modifier = Modifier.padding(16.dp),
+                fontWeight = FontWeight.Medium
             )
         }
+
+        // Request Permission Button
+        if (!locationPermissionState.status.isGranted) {
+            Button(
+                onClick = { locationPermissionState.launchPermissionRequest() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("🔐 Request Location Permission")
+            }
+        }
+
+        // Probe Button
+        if (locationPermissionState.status.isGranted) {
+            Button(
+                onClick = { viewModel.probeCellTowers() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !uiState.isLoading
+            ) {
+                if (uiState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+                Text(if (uiState.isLoading) "Probing..." else "🔍 Probe Cell Towers")
+            }
+        }
+
+        // Results
+        if (uiState.error != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "❌ Error",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = uiState.error!!,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
+        if (uiState.cellTowerData.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "📊 Cell Tower Data",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    uiState.cellTowerData.forEach { tower ->
+                        CellTowerCard(tower = tower)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+
+        // Debug Info
+        if (uiState.debugInfo.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "🐛 Debug Info",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = uiState.debugInfo,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CellTowerCard(tower: CellTowerData) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "📱 ${tower.networkType} - SIM ${tower.simSlot}",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                InfoChip("MCC", tower.mcc.toString())
+                InfoChip("MNC", tower.mnc.toString())
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                InfoChip("LAC/TAC", tower.lac.toString())
+                InfoChip("CID", tower.cid.toString())
+            }
+
+            if (tower.signalStrength != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "📶 Signal: ${tower.signalStrength} dBm",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // The key format for API calls
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "🔑 API Key: ${tower.mcc}_${tower.mnc}_${tower.lac}_${tower.cid}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Composable
+fun InfoChip(label: String, value: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = MaterialTheme.shapes.small
+    ) {
+        Text(
+            text = "$label: $value",
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
+        )
     }
 }
