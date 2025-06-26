@@ -1,37 +1,42 @@
 package com.example.towerlink
 
-import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
+import android.Manifest
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.towerlink.ui.theme.TowerLinkTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import com.google.accompanist.permissions.shouldShowRationale
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import kotlinx.coroutines.launch
+import com.slaviboy.iconscompose.Icon
+import com.slaviboy.iconscompose.R
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,178 +45,444 @@ class MainActivity : ComponentActivity() {
         setContent {
             TowerLinkTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    CellTowerProbeScreen(modifier = Modifier.padding(innerPadding))
+                    LogScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalAnimationApi::class)
 @Composable
-fun CellTowerProbeScreen(modifier: Modifier = Modifier, viewModel: CellTowerViewModel = viewModel()) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+fun LogScreen(modifier: Modifier = Modifier, viewModel: CellTowerViewModel = viewModel()) {
     val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    val locationPermissionState = rememberPermissionState(permission = Manifest.permission.ACCESS_FINE_LOCATION)
+    // Animation states
+    var isServiceRunning by remember { mutableStateOf(false) }
+    val pulseAnimation by animateFloatAsState(
+        targetValue = if (isServiceRunning) 1.02f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
 
-    Column(
-        modifier = modifier.fillMaxSize().padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    val permissionState = rememberMultiplePermissionsState(permissions = permissionsToRequest)
+
+    LaunchedEffect(Unit) {
+        if (!permissionState.allPermissionsGranted) {
+            permissionState.launchMultiplePermissionRequest()
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
+                )
+            )
     ) {
-        Text("Cell Tower Probe 🛰️", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (locationPermissionState.status.isGranted) {
-            Button(onClick = { viewModel.fetchCellTowerInfo() }, modifier = Modifier.fillMaxWidth()) {
-                Text("REFRESH CELL INFO")
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header with animation
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInVertically(
+                    initialOffsetY = { -it },
+                    animationSpec = tween(800, easing = EaseOutBounce)
+                )
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .scale(pulseAnimation),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "🛰️ TowerLink",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Cell Tower Monitor",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                val textToShow = if (locationPermissionState.status.shouldShowRationale) {
-                    "This app needs location to scan cell towers. It's the whole point! Please grant the permission. 😉"
+
+            Spacer(Modifier.height(20.dp))
+
+            // Permission status with smooth transitions
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInHorizontally(
+                    initialOffsetX = { -it },
+                    animationSpec = tween(600, delayMillis = 200)
+                )
+            ) {
+                StatusCard(permissionState.allPermissionsGranted)
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // Control buttons or permission request
+            AnimatedContent(
+                targetState = permissionState.allPermissionsGranted,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(600)) with fadeOut(animationSpec = tween(600))
+                }
+            ) { hasPermissions ->
+                if (hasPermissions) {
+                    EnhancedControlButtons(
+                        viewModel = viewModel,
+                        onServiceStateChange = { isServiceRunning = it },
+                        onClearLogs = { viewModel.clearLogs() },
+                        onCopyAllLogs = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("Cell Tower Logs", uiState.logs)
+                            clipboard.setPrimaryClip(clip)
+                            Toast.makeText(context, "All logs copied! 📋", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 } else {
-                    "Location permission is required. Click below to grant it."
-                }
-                Text(textToShow, textAlign = TextAlign.Center)
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { locationPermissionState.launchPermissionRequest() }) {
-                    Text("GRANT PERMISSION")
+                    Button(
+                        onClick = { permissionState.launchMultiplePermissionRequest() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+
+                        Icon(
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(15.dp),
+                            type = R.drawable.fi_br_lock,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+
+                        Spacer(Modifier.width(8.dp))
+                        Text("🔐 Grant Permissions")
+                    }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
-        // --- Display Area ---
-        when {
-            uiState.isLoading -> CircularProgressIndicator()
-            uiState.error != null -> ErrorCard(error = uiState.error!!)
-            else -> ResultsDisplay(uiState)
-        }
-    }
-}
-
-@Composable
-fun ResultsDisplay(uiState: CellTowerUiState) {
-    if (uiState.totalCellsFound == 0 && !uiState.isLoading) {
-        Text("Click 'Refresh' to start scanning...", style = MaterialTheme.typography.bodyLarge)
-        return
-    }
-
-    LazyColumn(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        item {
-            DebugSummaryCard(
-                total = uiState.totalCellsFound,
-                registered = uiState.cellDataList.count { it.status == "Registered" },
-                phoneType = uiState.phoneType
+            // Enhanced log display
+            EnhancedLogDisplay(
+                logs = uiState.logs,
+                modifier = Modifier.weight(1f)
             )
         }
-        items(uiState.cellDataList) { cellData ->
-            CellDataCard(data = cellData)
-        }
     }
 }
 
 @Composable
-fun DebugSummaryCard(total: Int, registered: Int, phoneType: String) {
-    Card(elevation = CardDefaults.cardElevation(4.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Total Found", style = MaterialTheme.typography.labelMedium)
-                Text("$total", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Registered", style = MaterialTheme.typography.labelMedium)
-                Text("$registered", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Phone Type", style = MaterialTheme.typography.labelMedium)
-                Text(phoneType, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-}
-
-@Composable
-fun CellDataCard(data: CellData) {
+fun StatusCard(hasPermissions: Boolean) {
     Card(
-        elevation = CardDefaults.cardElevation(2.dp),
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (data.status == "Registered") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+            containerColor = if (hasPermissions)
+                Color(0xFF4CAF50).copy(alpha = 0.1f)
+            else
+                Color(0xFFF44336).copy(alpha = 0.1f)
+        ),
+        border = androidx.compose.foundation.BorderStroke(
+            2.dp,
+            if (hasPermissions) Color(0xFF4CAF50) else Color(0xFFF44336)
         )
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Text("📡 ${data.type}", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(
-                    text = data.status.uppercase(),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (data.status == "Registered") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Divider()
-            Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                modifier = Modifier
+                    .width(15.dp)
+                    .height(15.dp),
+                type = if (hasPermissions) R.drawable.fi_br_check else R.drawable.fi_br_exclamation,
+                color = if (hasPermissions) Color(0xFF4CAF50) else Color(0xFFF44336)
+            )
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                InfoColumn(label = "MCC", value = data.mcc)
-                InfoColumn(label = "MNC", value = data.mnc)
-                InfoColumn(label = "Signal", value = "${data.signalDbm} dBm")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(Modifier.width(12.dp))
             Text(
-                text = "ID: ${data.rawDetails}",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 14.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+                text = if (hasPermissions) "✅ All Systems Ready" else "❌ Permissions Required",
+                fontWeight = FontWeight.Medium,
+                color = if (hasPermissions) Color(0xFF4CAF50) else Color(0xFFF44336)
             )
         }
     }
 }
 
 @Composable
-fun RowScope.InfoColumn(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-        Text(label, style = MaterialTheme.typography.labelSmall)
-        Text(value, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+fun EnhancedControlButtons(
+    viewModel: CellTowerViewModel,
+    onServiceStateChange: (Boolean) -> Unit,
+    onClearLogs: () -> Unit,
+    onCopyAllLogs: () -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Primary controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = {
+                    val intent = Intent(context, CellTowerMonitorService::class.java)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        context.startForegroundService(intent)
+                    } else {
+                        context.startService(intent)
+                    }
+                    onServiceStateChange(true)
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF4CAF50)
+                )
+            ) {
+
+                Icon(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(15.dp),
+                    type = R.drawable.fi_br_play,
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+                )
+
+                Spacer(Modifier.width(4.dp))
+                Text("START", fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = {
+                    val intent = Intent(context, CellTowerMonitorService::class.java).apply {
+                        action = CellTowerMonitorService.ACTION_STOP_SERVICE
+                    }
+                    context.startService(intent)
+                    onServiceStateChange(false)
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFFF5722)
+                )
+            ) {
+
+                Icon(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(15.dp),
+                    type = R.drawable.fi_br_stop,
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+                )
+
+                Spacer(Modifier.width(4.dp))
+                Text("STOP", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        // Secondary controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = onClearLogs,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+
+                Icon(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(15.dp),
+                    type = R.drawable.fi_br_broom,
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+                )
+
+                Spacer(Modifier.width(4.dp))
+                Text("CLEAR")
+            }
+
+            Button(
+                onClick = onCopyAllLogs,
+                modifier = Modifier.weight(1f)
+            ) {
+
+                Icon(
+                    modifier = Modifier
+                        .width(15.dp)
+                        .height(15.dp),
+                    type = R.drawable.fi_br_duplicate,
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+                )
+
+                Spacer(Modifier.width(4.dp))
+                Text("COPY ALL")
+            }
+        }
+
+        // Unique keys button
+        Button(
+            onClick = {
+                coroutineScope.launch {
+                    val uniqueTowers = viewModel.getUniqueTowersForClipboard()
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("Unique Cell Tower Keys", uniqueTowers)
+                    clipboard.setPrimaryClip(clip)
+                    Toast.makeText(context, "Copied ${uniqueTowers.lines().size} unique tower keys! ✨", Toast.LENGTH_SHORT).show()
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary
+            )
+        ) {
+
+            Icon(
+                modifier = Modifier
+                    .width(15.dp)
+                    .height(15.dp),
+                type = R.drawable.fi_br_key,
+                color = MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+            )
+
+            Spacer(Modifier.width(8.dp))
+            Text("sCOPY UNIQUE KEYS", fontWeight = FontWeight.Bold)
+        }
     }
 }
 
 @Composable
-fun ErrorCard(error: String) {
-    val context = LocalContext.current
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-    ) {
-        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("❌ Error", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onError)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(error, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onError)
+fun EnhancedLogDisplay(
+    logs: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "📊 Live Monitoring Log",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
 
-            // If it's a security exception, offer a link to settings
-            if (error.contains("SecurityException", ignoreCase = true)) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = {
-                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                    intent.data = Uri.fromParts("package", context.packageName, null)
-                    context.startActivity(intent)
-                }) {
-                    Text("OPEN APP SETTINGS")
+            // Log count badge
+            val logCount = logs.lines().filter { it.isNotBlank() }.size
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+                )
+            ) {
+                Text(
+                    text = "$logCount entries",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Card(
+            modifier = Modifier.fillMaxSize(),
+            elevation = CardDefaults.cardElevation(4.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
+        ) {
+            val scrollState = rememberScrollState()
+            LaunchedEffect(logs) {
+                if (scrollState.maxValue > 0) {
+                    scrollState.animateScrollTo(0)
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
+                if (logs.isBlank() || logs == "No logs found. Start monitoring.") {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            modifier = Modifier
+                                .width(15.dp)
+                                .height(15.dp),
+                            type = R.drawable.fi_br_signal_alt,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "No monitoring data yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                        Text(
+                            "Start the service to begin logging",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = logs,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
