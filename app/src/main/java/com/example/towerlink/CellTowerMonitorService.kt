@@ -14,6 +14,8 @@ import com.example.towerlink.data.CellTowerData
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
+import com.slaviboy.iconscompose.Icon
+import com.slaviboy.iconscompose.R
 
 class CellTowerMonitorService : Service() {
 
@@ -224,7 +226,7 @@ class CellTowerMonitorService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("📡 Cell Tower Monitor Active")
             .setContentText(contentText)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.fi_rr_signal_alt)
             .setOngoing(true)
             .setShowWhen(false)
             .setContentIntent(mainPendingIntent)

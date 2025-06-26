@@ -386,7 +386,7 @@ fun EnhancedControlButtons(
             )
 
             Spacer(Modifier.width(8.dp))
-            Text("sCOPY UNIQUE KEYS", fontWeight = FontWeight.Bold)
+            Text("COPY UNIQUE KEYS", fontWeight = FontWeight.Bold)
         }
     }
 }
